@@ -72,11 +72,13 @@ async def test_without_auto_provisioning_no_user_is_created_and_disabled_still_a
 
 
 @pytest.mark.asyncio
-async def test_another_apps_post_creates_no_user(tmp_path):
+@pytest.mark.parametrize("user", ["", "U_OTHER_BOT"], ids=["bot-id-only", "bot-user"])
+async def test_another_apps_post_creates_no_user(tmp_path, user):
+    # A bot user's post carries its own user id with the bot id
     app = _app(tmp_path)
     ctx = make_ctx(respond_to_other_apps=True).bind(app)
     ctx.bot_id, ctx.bot_user_id = "B_SELF", "U_SELF"
-    run_event, _ = await _send(ctx, user="", bot_id="B_OTHER")
+    run_event, _ = await _send(ctx, user=user, bot_id="B_OTHER")
     assert run_event.called
     assert await app.state.user_store.acount() == 0
 

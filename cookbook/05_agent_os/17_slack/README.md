@@ -208,8 +208,9 @@ team or workflow, and is not in `users=`, gets a user in the AgentOS user
 directory, created on their first message under that same `user_id`, with their
 display name (and email with `resolve_user_identity=True`). They show in
 `/users`, and disabling one refuses their messages and their paused runs. The
-directory adds no permission checks: these runs are checked as before. A post by
-another app creates no user, `UserDirectory(auto_provision=False)` creates none
+directory adds no permission checks: these runs are checked as before. A post
+made through an app (one that carries a bot ID, including a bot user's post)
+creates no user, `UserDirectory(auto_provision=False)` creates none
 but still applies the disabled switch, and an unreachable directory follows
 `UserDirectory(fail_closed=...)`. Super Agent's members are not added.
 

@@ -107,8 +107,9 @@ async def provision_sender(ctx: "SlackContext", event_context: "EventContext") -
     subject = event_context.user_id
     if user_store is None or not subject or is_reserved_principal(subject):
         return None
-    # Only a person's message creates a user; another app's post or a resumed run reads one
-    if not event_context.event.get("user") or not getattr(state, "user_auto_provision", False):
+    # Only a person's own message creates a user; a post through an app (it carries a bot id) or a resumed run reads one
+    event = event_context.event
+    if not event.get("user") or event.get("bot_id") or not getattr(state, "user_auto_provision", False):
         return await user_store.aget(subject)
     claims: Dict[str, Any] = {}
     if ctx.resolve_user_identity and "@" in subject:
