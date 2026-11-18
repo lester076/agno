@@ -1,5 +1,5 @@
 from os import getenv
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from agno.os.interfaces.slack.helpers import post_ephemeral
 from agno.utils.log import log_warning
@@ -94,6 +94,32 @@ def no_roles_authorization(app: Any, owner: str) -> Any:
     return principal_authorization(app, f"slack:{owner}")
 
 
+async def provision_sender(ctx: "SlackContext", event_context: "EventContext") -> Optional[Dict[str, Any]]:
+    """The directory user of a Slack sender, created on a message when auto-provisioning is on.
+
+    None without a user directory, or for a sender it does not hold. Raises when the directory fails.
+    """
+    from agno.os.auth import aprovision_user_with_default_role
+    from agno.os.middleware.jwt import is_reserved_principal
+
+    state = getattr(ctx.app, "state", None)
+    user_store = getattr(state, "user_store", None)
+    subject = event_context.user_id
+    if user_store is None or not subject or is_reserved_principal(subject):
+        return None
+    # Only a person's message creates a user; another app's post or a resumed run reads one
+    if not event_context.event.get("user") or not getattr(state, "user_auto_provision", False):
+        return await user_store.aget(subject)
+    claims: Dict[str, Any] = {}
+    if ctx.resolve_user_identity and "@" in subject:
+        claims["email"] = subject
+    if event_context.display_name:
+        claims["name"] = event_context.display_name
+    return await aprovision_user_with_default_role(
+        user_store, getattr(state, "role_store", None), subject, claims, email_claim="email", name_claim="name"
+    )
+
+
 async def authorize_unmapped(
     ctx: "SlackContext",
     event_context: "EventContext",
@@ -102,14 +128,34 @@ async def authorize_unmapped(
     thread_ts: Optional[str] = None,
 ) -> bool:
     """Authority of a run whose owner is not in users=: the default role's; else no roles on Super Agent, else none."""
+    if ctx.company is None:
+        # An agent, team or workflow keeps a directory user for each Slack sender
+        try:
+            directory_user = await provision_sender(ctx, event_context)
+        except Exception as e:
+            fail_closed = bool(getattr(getattr(ctx.app, "state", None), "user_directory_fail_closed", False))
+            log_warning(
+                f"user directory check failed for {event_context.user_id!r}: {e} "
+                f"(failing {'closed' if fail_closed else 'open'})"
+            )
+            if fail_closed:
+                await post_ephemeral(
+                    client, event_context.channel, user, "Not run: User directory unavailable", thread_ts
+                )
+                return False
+            directory_user = None
+        if ctx.default_role is None:
+            # Without a default role it runs unchecked; only the disabled switch applies
+            if directory_user is not None and directory_user.get("disabled"):
+                await post_ephemeral(client, event_context.channel, user, "Not run: User is disabled", thread_ts)
+                return False
+            return True
     # The member acts and is recorded as themselves; the default role only supplies the permissions
     if ctx.default_role is not None:
         return await authorize_run(
             ctx, event_context, event_context.user_id, client, user, thread_ts, roles=[ctx.default_role]
         )
-    # Without a default role only Super Agent (ctx.company is set) is checked, with no roles; others run unchecked
-    if ctx.company is None:
-        return True
+    # Super Agent without a default role is checked with no roles
     event_context.authority = no_roles_authorization(ctx.app, event_context.owner)
     return True
 

@@ -203,6 +203,16 @@ returns it and adds the display name to run metadata.
 Sessions are stored under the run's `user_id`; map a member with `users=` to
 see the thread under their principal.
 
+With `AgentOS(user_directory=True)`, each Slack member who messages an agent,
+team or workflow, and is not in `users=`, gets a user in the AgentOS user
+directory, created on their first message under that same `user_id`, with their
+display name (and email with `resolve_user_identity=True`). They show in
+`/users`, and disabling one refuses their messages and their paused runs. The
+directory adds no permission checks: these runs are checked as before. A post by
+another app creates no user, `UserDirectory(auto_provision=False)` creates none
+but still applies the disabled switch, and an unreachable directory follows
+`UserDirectory(fail_closed=...)`. Super Agent's members are not added.
+
 Claude Code and Codex take one turn per session at a time: a message that
 arrives while one is working gets a short "still working" reply. An Agent or
 Team runs both turns.

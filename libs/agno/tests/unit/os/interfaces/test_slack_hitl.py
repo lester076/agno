@@ -659,6 +659,28 @@ class TestRestoredAuthorityWithoutUsers:
             assert fake.calls[0]["event_context"].authority is None
 
     @pytest.mark.asyncio
+    async def test_disabled_owner_of_an_agent_run_does_not_resume(self, tmp_path):
+        from agno.agent import Agent
+        from agno.db.sqlite import SqliteDb
+        from agno.os import AgentOS
+
+        db = SqliteDb(db_file=str(tmp_path / "os.db"))
+        app = AgentOS(id="hitl-directory", db=db, agents=[Agent(id="agent-1")], user_directory=True, telemetry=False)
+        app = app.get_app()
+        await app.state.user_store.aset_disabled(OWNER, True)
+        ctx = make_ctx(agent=_make_entity(_paused_run([_make_requirement()]))).bind(app)
+        client = make_async_client_mock()
+        fake = FakeContinue()
+
+        with patch.object(hitl, "continue_run", new=fake):
+            await hitl.handle_submit(_submit_payload(_approved_blocks(), owner=OWNER), client, ctx)
+
+        assert fake.calls == []
+        assert _ephemerals(client) == ["Not run: User is disabled"]
+        # A resumed run reads the directory and never creates a user
+        assert await app.state.user_store.acount() == 1
+
+    @pytest.mark.asyncio
     async def test_click_after_registry_clear_restores_default_role_authority(self):
         entity = _make_entity(_paused_run([_make_requirement()]))
         ctx = make_ctx(agent=entity, default_role="slack-bot")
